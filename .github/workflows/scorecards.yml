@@ -1,10 +1,5 @@
 name: "Scorecard"
-on:
-  branch_protection_rule:
-  schedule:
-    - cron: "0 0 * * 0"
-  push:
-    branches: ["main"]
+on: workflow_dispatch
 
 permissions:
   contents: "read"

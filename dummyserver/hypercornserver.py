@@ -60,21 +60,33 @@ class Config(hypercorn.Config):
         port = 0  # Get a random port
         family = socket.AF_INET6 if ":" in host else socket.AF_UNSPEC
 
-        for res in socket.getaddrinfo(
-            host, port, family, socket.SOCK_STREAM, 0, socket.AI_PASSIVE
-        ):
-            af, socktype, proto, canonname, sockadddr = res
+        # Close everything we already opened if any bind fails: the EADDRINUSE
+        # retry in _retry_create_urllib3_sockets swallows the error and tries
+        # again, so the sockets bound before the failure would otherwise be
+        # leaked and only closed by the garbage collector. The ResourceWarning
+        # they raise at GC time is an unraisable exception, which pytest's
+        # unraisable-exception plugin escalates into a spurious ERROR on
+        # whichever unrelated test happens to be running at that moment.
+        try:
+            for res in socket.getaddrinfo(
+                host, port, family, socket.SOCK_STREAM, 0, socket.AI_PASSIVE
+            ):
+                af, socktype, proto, canonname, sockadddr = res
 
-            sock = socket.socket(af, socket.SOCK_STREAM, proto)
+                sock = socket.socket(af, socket.SOCK_STREAM, proto)
+                sockets.append(sock)
 
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-            sock.setblocking(False)
-            sock.bind((host, port))
-            port = sock.getsockname()[1]
-            sock.set_inheritable(True)
-            sockets.append(sock)
+                sock.setblocking(False)
+                sock.bind((host, port))
+                port = sock.getsockname()[1]
+                sock.set_inheritable(True)
+        except BaseException:
+            for sock in sockets:
+                sock.close()
+            raise
 
         return sockets
 
